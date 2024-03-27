@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
+    str::FromStr,
 };
 
 const HTTP_LINE_ENDING: &str = "\r\n";
@@ -27,14 +28,15 @@ fn main() {
 
 enum StatusCode {
     Ok,
+    Created,
     NotFound,
-    #[allow(dead_code)]
     InternalServerError,
 }
 impl StatusCode {
     fn status_line<'a>(&self) -> &'a str {
         match self {
             StatusCode::Ok => "200 OK",
+            StatusCode::Created => "201 Created",
             StatusCode::NotFound => "404 Not Found",
             StatusCode::InternalServerError => "500 Internal Server Error",
         }
@@ -54,24 +56,64 @@ impl ContentType {
     }
 }
 
+enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Delete,
+}
+
+impl FromStr for HttpMethod {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "GET" => Ok(HttpMethod::Get),
+            "POST" => Ok(HttpMethod::Post),
+            "PUT" => Ok(HttpMethod::Put),
+            "Delete" => Ok(HttpMethod::Delete),
+            _ => Err(()),
+        }
+    }
+}
+
 struct Request {
-    start_line: String,
+    method: HttpMethod,
+    path: String,
+    http_version: String,
     headers: std::collections::HashMap<String, String>,
+    body: String,
 }
 
 impl Request {
     fn parse(stream: &TcpStream) -> Self {
-        let mut start_line = String::new();
-        let mut headers = std::collections::HashMap::<String, String>::new();
-
         let mut reader = BufReader::new(stream);
-        if let Err(err) = reader.read_line(&mut start_line) {
-            println!(
-                "Error occurred while reading start line of the request: {}",
-                err
-            );
-        }
+        let (method, path, http_version) = Request::parse_start_line(&mut reader);
+        let headers = Self::parse_headers(&mut reader);
+        let body = Self::parse_body(&mut reader, &headers);
 
+        Self {
+            method,
+            path,
+            http_version,
+            headers,
+            body,
+        }
+    }
+
+    fn parse_body(reader: &mut BufReader<&TcpStream>, headers: &HashMap<String, String>) -> String {
+        let length = headers
+            .get("Content-Length")
+            .map_or("0", |v| v.as_str())
+            .parse::<usize>()
+            .unwrap();
+        let mut body = vec![0; length];
+        reader.read_exact(&mut body).unwrap();
+        let body = String::from_utf8(body).unwrap();
+        body
+    }
+
+    fn parse_headers(reader: &mut BufReader<&TcpStream>) -> HashMap<String, String> {
+        let mut headers = std::collections::HashMap::<String, String>::new();
         loop {
             let mut cur_header = String::new();
             if let Err(err) = reader.read_line(&mut cur_header) {
@@ -85,62 +127,88 @@ impl Request {
             let (key, value) = Self::parse_header(&cur_header);
             headers.insert(key.to_string(), value.to_string());
         }
-
-        Self {
-            start_line,
-            headers,
-        }
+        return headers;
     }
     fn parse_header(header: &str) -> (&str, &str) {
         // println!("parse_header: {}", header);
         let (key, value) = header.split_once(": ").unwrap();
         (key, &value[..value.len() - HTTP_LINE_ENDING.len()])
     }
+    fn parse_start_line(reader: &mut BufReader<&TcpStream>) -> (HttpMethod, String, String) {
+        // FIXME: There is a issue where this status_line is empty when using wrk
+        let mut start_line = String::new();
+        if let Err(err) = reader.read_line(&mut start_line) {
+            println!("Unable to read start line of the request: {}", err);
+        }
+        let start_line = start_line[..(start_line.len() - HTTP_LINE_ENDING.len())]
+            .split(" ")
+            .collect::<Vec<_>>();
+        (
+            HttpMethod::from_str(start_line[0]).unwrap(),
+            start_line[1].to_string(),
+            start_line[2].to_string(),
+        )
+    }
 }
 
 fn handle_incoming_request(mut stream: TcpStream, cmd_args: HashMap<String, String>) {
     let res = Request::parse(&stream);
-    let http_path = res.start_line.split(" ").collect::<Vec<_>>()[1];
-    let msg = match http_path {
-        "/" => gen_http_response(StatusCode::Ok),
-        _ if http_path.starts_with("/echo") => {
-            let echo_msg = &http_path[6..];
-            gen_http_response_with_msg(StatusCode::Ok, ContentType::Plain, echo_msg)
-        }
-        _ if http_path.starts_with("/user-agent") => {
-            let msg = res
-                .headers
-                .get("User-Agent")
-                .unwrap_or(&"".into())
-                .to_string();
-            gen_http_response_with_msg(StatusCode::Ok, ContentType::Plain, &msg)
-        }
-        _ if http_path.starts_with("/files") => {
-            let file_name = &http_path[7..];
-            match cmd_args.get("--directory") {
-                None => gen_http_response_with_msg(
-                    StatusCode::NotFound,
-                    ContentType::Plain,
-                    "path doesn't have file name",
-                ),
-                Some(dir_name) => {
-                    match std::fs::read_to_string(format!("{}/{}", dir_name, file_name)) {
-                        Err(_err) => gen_http_response_with_msg(
-                            StatusCode::NotFound,
-                            ContentType::Plain,
-                            "file not found",
-                        ),
-                        Ok(file_content) => gen_http_response_with_msg(
-                            StatusCode::Ok,
-                            ContentType::OctetStream,
-                            &file_content,
-                        ),
+    let msg = match res.method {
+        HttpMethod::Get => match res.path.as_str() {
+            "/" => gen_http_response(StatusCode::Ok),
+            _ if res.path.starts_with("/echo") => {
+                let echo_msg = &res.path[6..];
+                gen_http_response_with_msg(StatusCode::Ok, ContentType::Plain, echo_msg)
+            }
+            _ if res.path.starts_with("/user-agent") => {
+                let msg = res
+                    .headers
+                    .get("User-Agent")
+                    .unwrap_or(&"".into())
+                    .to_string();
+                gen_http_response_with_msg(StatusCode::Ok, ContentType::Plain, &msg)
+            }
+            _ if res.path.starts_with("/files") => {
+                let file_name = &res.path[7..];
+                match cmd_args.get("--directory") {
+                    None => gen_http_response_with_msg(
+                        StatusCode::NotFound,
+                        ContentType::Plain,
+                        "path doesn't have file name",
+                    ),
+                    Some(dir_name) => {
+                        match std::fs::read_to_string(format!("{}/{}", dir_name, file_name)) {
+                            Err(_err) => gen_http_response_with_msg(
+                                StatusCode::NotFound,
+                                ContentType::Plain,
+                                "file not found",
+                            ),
+                            Ok(file_content) => gen_http_response_with_msg(
+                                StatusCode::Ok,
+                                ContentType::OctetStream,
+                                &file_content,
+                            ),
+                        }
                     }
                 }
             }
-        }
-        _ => gen_http_response(StatusCode::NotFound),
+            _ => gen_http_response(StatusCode::NotFound),
+        },
+        HttpMethod::Post => match res.path.as_str() {
+            _ if res.path.starts_with("/files") => match cmd_args.get("--directory") {
+                None => gen_http_response(StatusCode::InternalServerError),
+                Some(dir_name) => {
+                    let file_name = &res.path[7..];
+                    std::fs::write(format!("{}/{}", dir_name, file_name), res.body.as_bytes())
+                        .unwrap();
+                    gen_http_response(StatusCode::Created)
+                }
+            },
+            _ => gen_http_response(StatusCode::NotFound),
+        },
+        _ => gen_http_response(StatusCode::InternalServerError),
     };
+
     if let Err(err) = stream.write(msg.as_bytes()) {
         println!("Error occurred while sending data: {}", err);
     }
