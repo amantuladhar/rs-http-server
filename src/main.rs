@@ -1,5 +1,5 @@
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
 };
 
@@ -11,36 +11,34 @@ fn main() {
 
     // Uncomment this block to pass the first stage
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
-                // let mut reader = BufReader::new(&_stream);
-                // let mut request_str = String::new();
-                // // Just read one line for now
-                // reader.read_line(&mut request_str).unwrap();
-                // let http_path = request_str.split(" ").collect::<Vec<&str>>()[1];
-                let res = Request::parse(&_stream);
-                let http_path = res.start_line.split(" ").collect::<Vec<_>>()[1];
-
-                let msg = match http_path {
-                    "/" => gen_http_response(200),
-                    _ if http_path.starts_with("/echo") => {
-                        let echo_msg = &http_path[6..];
-                        gen_http_response_with_msg(200, echo_msg)
+                std::thread::spawn(move || {
+                    let mut stream = _stream;
+                    let res = Request::parse(&stream);
+                    let http_path = res.start_line.split(" ").collect::<Vec<_>>()[1];
+                    let msg = match http_path {
+                        "/" => gen_http_response(200),
+                        _ if http_path.starts_with("/echo") => {
+                            let echo_msg = &http_path[6..];
+                            gen_http_response_with_msg(200, echo_msg)
+                        }
+                        _ if http_path.starts_with("/user-agent") => {
+                            let msg = res
+                                .headers
+                                .get("User-Agent")
+                                .unwrap_or(&"".into())
+                                .to_string();
+                            gen_http_response_with_msg(200, &msg)
+                        }
+                        _ => gen_http_response(404),
+                    };
+                    if let Err(err) = stream.write(msg.as_bytes()) {
+                        println!("Error occurred while sending data: {}", err);
                     }
-                    _ if http_path.starts_with("/user-agent") => {
-                        let msg = res
-                            .headers
-                            .get("User-Agent")
-                            .unwrap_or(&"".into())
-                            .to_string();
-                        gen_http_response_with_msg(200, &msg)
-                    }
-                    _ => gen_http_response(404),
-                };
-                if let Err(err) = _stream.write(msg.as_bytes()) {
-                    println!("Error occurred while sending data: {}", err);
-                }
+                });
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -73,7 +71,7 @@ impl Request {
                 println!("Error occurred while reading header: {}", err);
                 break;
             }
-            if cur_header == HTTP_LINE_ENDING {
+            if cur_header == HTTP_LINE_ENDING || cur_header == "\n" || cur_header.is_empty() {
                 // If cur_header is empty, it means we've reached the end of headers
                 break;
             }
@@ -87,6 +85,7 @@ impl Request {
         }
     }
     fn parse_header(header: &str) -> (&str, &str) {
+        // println!("parse_header: {}", header);
         let (key, value) = header.split_once(": ").unwrap();
         (key, &value[..value.len() - HTTP_LINE_ENDING.len()])
     }
