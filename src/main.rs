@@ -79,9 +79,10 @@ impl FromStr for HttpMethod {
 struct Request {
     method: HttpMethod,
     path: String,
+    #[allow(dead_code)]
     http_version: String,
     headers: std::collections::HashMap<String, String>,
-    body: String,
+    body: Vec<u8>,
 }
 
 impl Request {
@@ -100,7 +101,10 @@ impl Request {
         }
     }
 
-    fn parse_body(reader: &mut BufReader<&TcpStream>, headers: &HashMap<String, String>) -> String {
+    fn parse_body(
+        reader: &mut BufReader<&TcpStream>,
+        headers: &HashMap<String, String>,
+    ) -> Vec<u8> {
         let length = headers
             .get("Content-Length")
             .map_or("0", |v| v.as_str())
@@ -108,8 +112,7 @@ impl Request {
             .unwrap();
         let mut body = vec![0; length];
         reader.read_exact(&mut body).unwrap();
-        let body = String::from_utf8(body).unwrap();
-        body
+        return body;
     }
 
     fn parse_headers(reader: &mut BufReader<&TcpStream>) -> HashMap<String, String> {
@@ -199,8 +202,7 @@ fn handle_incoming_request(mut stream: TcpStream, cmd_args: HashMap<String, Stri
                 None => gen_http_response(StatusCode::InternalServerError),
                 Some(dir_name) => {
                     let file_name = &res.path[7..];
-                    std::fs::write(format!("{}/{}", dir_name, file_name), res.body.as_bytes())
-                        .unwrap();
+                    std::fs::write(format!("{}/{}", dir_name, file_name), &res.body).unwrap();
                     gen_http_response(StatusCode::Created)
                 }
             },
