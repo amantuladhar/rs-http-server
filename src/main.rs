@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
 };
@@ -6,43 +7,49 @@ use std::{
 const HTTP_LINE_ENDING: &str = "\r\n";
 
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
-
-    // Uncomment this block to pass the first stage
+    let cmd_args = parse_cmd_args();
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
-
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
+                let cloned_args = cmd_args.clone();
                 std::thread::spawn(move || {
-                    let mut stream = _stream;
-                    let res = Request::parse(&stream);
-                    let http_path = res.start_line.split(" ").collect::<Vec<_>>()[1];
-                    let msg = match http_path {
-                        "/" => gen_http_response(200),
-                        _ if http_path.starts_with("/echo") => {
-                            let echo_msg = &http_path[6..];
-                            gen_http_response_with_msg(200, echo_msg)
-                        }
-                        _ if http_path.starts_with("/user-agent") => {
-                            let msg = res
-                                .headers
-                                .get("User-Agent")
-                                .unwrap_or(&"".into())
-                                .to_string();
-                            gen_http_response_with_msg(200, &msg)
-                        }
-                        _ => gen_http_response(404),
-                    };
-                    if let Err(err) = stream.write(msg.as_bytes()) {
-                        println!("Error occurred while sending data: {}", err);
-                    }
+                    handle_incoming_request(_stream, cloned_args);
                 });
             }
             Err(e) => {
                 println!("error: {}", e);
             }
+        }
+    }
+}
+
+enum StatusCode {
+    Ok,
+    NotFound,
+    #[allow(dead_code)]
+    InternalServerError,
+}
+impl StatusCode {
+    fn status_line<'a>(&self) -> &'a str {
+        match self {
+            StatusCode::Ok => "200 OK",
+            StatusCode::NotFound => "404 Not Found",
+            StatusCode::InternalServerError => "500 Internal Server Error",
+        }
+    }
+}
+
+enum ContentType {
+    Plain,
+    OctetStream,
+}
+impl ContentType {
+    fn to_str(&self) -> &str {
+        match self {
+            ContentType::Plain => "text/plain",
+            ContentType::OctetStream => "application/octet-stream",
         }
     }
 }
@@ -91,15 +98,61 @@ impl Request {
     }
 }
 
-fn gen_http_response(status: u16) -> String {
-    gen_http_response_with_msg(status, "")
+fn handle_incoming_request(mut stream: TcpStream, cmd_args: HashMap<String, String>) {
+    let res = Request::parse(&stream);
+    let http_path = res.start_line.split(" ").collect::<Vec<_>>()[1];
+    let msg = match http_path {
+        "/" => gen_http_response(StatusCode::Ok),
+        _ if http_path.starts_with("/echo") => {
+            let echo_msg = &http_path[6..];
+            gen_http_response_with_msg(StatusCode::Ok, ContentType::Plain, echo_msg)
+        }
+        _ if http_path.starts_with("/user-agent") => {
+            let msg = res
+                .headers
+                .get("User-Agent")
+                .unwrap_or(&"".into())
+                .to_string();
+            gen_http_response_with_msg(StatusCode::Ok, ContentType::Plain, &msg)
+        }
+        _ if http_path.starts_with("/files") => {
+            let file_name = &http_path[7..];
+            match cmd_args.get("--directory") {
+                None => gen_http_response_with_msg(
+                    StatusCode::NotFound,
+                    ContentType::Plain,
+                    "path doesn't have file name",
+                ),
+                Some(dir_name) => {
+                    match std::fs::read_to_string(format!("{}/{}", dir_name, file_name)) {
+                        Err(_err) => gen_http_response_with_msg(
+                            StatusCode::NotFound,
+                            ContentType::Plain,
+                            "file not found",
+                        ),
+                        Ok(file_content) => gen_http_response_with_msg(
+                            StatusCode::Ok,
+                            ContentType::OctetStream,
+                            &file_content,
+                        ),
+                    }
+                }
+            }
+        }
+        _ => gen_http_response(StatusCode::NotFound),
+    };
+    if let Err(err) = stream.write(msg.as_bytes()) {
+        println!("Error occurred while sending data: {}", err);
+    }
 }
-fn gen_http_response_with_msg(status: u16, msg: &str) -> String {
-    let status_line = get_status_line(status);
 
+fn gen_http_response(status: StatusCode) -> String {
+    gen_http_response_with_msg(status, ContentType::Plain, "")
+}
+fn gen_http_response_with_msg(status: StatusCode, content_type: ContentType, msg: &str) -> String {
     let mut msg_lines = vec![];
-    msg_lines.push(format!("HTTP/1.1 {status_line}"));
-    msg_lines.push("Content-Type: text/plain".to_string());
+    msg_lines.push(format!("HTTP/1.1 {}", status.status_line()));
+    msg_lines.push(format!("Content-Type: {}", content_type.to_str()));
     msg_lines.push(format!("Content-Length: {}", msg.len()));
 
     msg_lines.push("".to_string());
@@ -107,10 +160,11 @@ fn gen_http_response_with_msg(status: u16, msg: &str) -> String {
     msg_lines.join(HTTP_LINE_ENDING)
 }
 
-fn get_status_line<'a>(status: u16) -> &'a str {
-    match status {
-        200 => "200 OK",
-        404 => "404 Not Found",
-        _ => "500 Internal Server Error",
-    }
+fn parse_cmd_args() -> HashMap<String, String> {
+    let arg_vec = std::env::args().collect::<Vec<String>>();
+    let params = arg_vec[1..]
+        .chunks(2)
+        .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
+        .collect::<HashMap<_, _>>();
+    params
 }
