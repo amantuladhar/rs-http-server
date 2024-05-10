@@ -5,10 +5,17 @@ use std::{
     str::FromStr,
 };
 
+use tracing::info;
+
+use crate::utils::setup::setup;
+mod utils;
+
 const HTTP_LINE_ENDING: &str = "\r\n";
 
 fn main() {
-    println!("Logs from your program will appear here!");
+    setup();
+
+    info!("Logs from your program will appear here!");
     let cmd_args = parse_cmd_args();
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
     for stream in listener.incoming() {
