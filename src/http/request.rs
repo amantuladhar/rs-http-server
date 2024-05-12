@@ -1,38 +1,89 @@
 use std::{
     collections::HashMap,
+    hash::Hash,
     io::{BufRead, BufReader, Read},
     net::TcpStream,
     str::FromStr,
 };
 
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead};
+
 use crate::HTTP_LINE_ENDING;
 
-use super::method::Method;
+use super::{method::Method, Parse};
 
+#[derive(Debug)]
 pub struct Request {
     pub method: Method,
     pub path: String,
     #[allow(dead_code)]
     pub http_version: String,
-    pub headers: std::collections::HashMap<String, String>,
+    pub headers: HashMap<String, String>,
+    pub params: HashMap<String, String>,
     pub body: Vec<u8>,
 }
 
-impl Request {
-    pub fn parse(stream: &TcpStream) -> Self {
-        let mut reader = BufReader::new(stream);
-        let (method, path, http_version) = Request::parse_start_line(&mut reader);
-        let headers = Self::parse_headers(&mut reader);
-        let body = Self::parse_body(&mut reader, &headers);
-
-        Self {
-            method,
-            path,
-            http_version,
-            headers,
-            body,
+impl<R> Parse<R> for Request
+where
+    R: AsyncRead + AsyncBufRead + Unpin,
+{
+    async fn parse(reader: &mut R) -> Self {
+        let start_line = StartLine::parse(reader).await;
+        Request {
+            method: start_line.method,
+            path: start_line.path,
+            http_version: start_line.version,
+            headers: HashMap::default(),
+            params: HashMap::default(),
+            body: vec![],
         }
     }
+}
+struct StartLine {
+    method: Method,
+    path: String,
+    version: String,
+}
+
+impl<R> Parse<R> for StartLine
+where
+    R: AsyncRead + AsyncBufRead + Unpin,
+{
+    async fn parse(reader: &mut R) -> Self {
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .await
+            .expect("unable to read status line from a request stream");
+        let line = line[..line.len() - HTTP_LINE_ENDING.len()]
+            .split(" ")
+            .collect::<Vec<&str>>();
+        let method = Method::from_str(line[0]).expect("not able to parse request method type");
+        let path = line[1].into();
+        let version = line[2].into();
+        StartLine {
+            method,
+            path,
+            version,
+        }
+    }
+}
+
+impl Request {
+    // pub fn parse(stream: &TcpStream) -> Self {
+    //     let mut reader = BufReader::new(stream);
+    //     let (method, path, http_version) = Request::parse_start_line(&mut reader);
+    //     let headers = Self::parse_headers(&mut reader);
+    //     let body = Self::parse_body(&mut reader, &headers);
+
+    //     Self {
+    //         method,
+    //         path,
+    //         http_version,
+    //         headers,
+    //         body,
+    //     }
+    // }
 
     pub fn parse_body(
         reader: &mut BufReader<&TcpStream>,
@@ -49,7 +100,7 @@ impl Request {
     }
 
     pub fn parse_headers(reader: &mut BufReader<&TcpStream>) -> HashMap<String, String> {
-        let mut headers = std::collections::HashMap::<String, String>::new();
+        let mut headers = HashMap::<String, String>::new();
         loop {
             let mut cur_header = String::new();
             if let Err(err) = reader.read_line(&mut cur_header) {
