@@ -29,11 +29,12 @@ where
 {
     async fn parse(reader: &mut R) -> Self {
         let start_line = StartLine::parse(reader).await;
+        let headers = Self::parse_headers(reader).await;
         Request {
             method: start_line.method,
             path: start_line.path,
             http_version: start_line.version,
-            headers: HashMap::default(),
+            headers: headers,
             params: HashMap::default(),
             body: vec![],
         }
@@ -99,11 +100,14 @@ impl Request {
         return body;
     }
 
-    pub fn parse_headers(reader: &mut BufReader<&TcpStream>) -> HashMap<String, String> {
+    pub async fn parse_headers<R>(reader: &mut R) -> HashMap<String, String>
+    where
+        R: AsyncRead + AsyncBufRead + Unpin,
+    {
         let mut headers = HashMap::<String, String>::new();
         loop {
             let mut cur_header = String::new();
-            if let Err(err) = reader.read_line(&mut cur_header) {
+            if let Err(err) = reader.read_line(&mut cur_header).await {
                 println!("Error occurred while reading header: {}", err);
                 break;
             }
@@ -120,20 +124,5 @@ impl Request {
         // println!("parse_header: {}", header);
         let (key, value) = header.split_once(": ").unwrap();
         (key, &value[..value.len() - HTTP_LINE_ENDING.len()])
-    }
-    pub fn parse_start_line(reader: &mut BufReader<&TcpStream>) -> (Method, String, String) {
-        // FIXME: There is a issue where this status_line is empty when using wrk
-        let mut start_line = String::new();
-        if let Err(err) = reader.read_line(&mut start_line) {
-            println!("Unable to read start line of the request: {}", err);
-        }
-        let start_line = start_line[..(start_line.len() - HTTP_LINE_ENDING.len())]
-            .split(" ")
-            .collect::<Vec<_>>();
-        (
-            Method::from_str(start_line[0]).unwrap(),
-            start_line[1].to_string(),
-            start_line[2].to_string(),
-        )
     }
 }

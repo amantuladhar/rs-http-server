@@ -128,9 +128,16 @@ fn find_matching_route_method<'a>(
                     return format!(r"(?<{}>.*)", grp_name);
                 })
                 .join("\\/");
+
+            // Remove trailing `/` from the path
+            let req_path = if request.path.ends_with("/") {
+                request.path[0..request.path.len() - 1].to_string()
+            } else {
+                request.path.clone()
+            };
             let path_regex = format!(r"^{}$", path_regex);
             let regex = Regex::new(&path_regex).unwrap();
-            let Some(caps) = regex.captures(&request.path) else {
+            let Some(caps) = regex.captures(req_path.as_str()) else {
                 debug!(
                     "Path: {:?}, Request Path: {:?}, Match: {:?}",
                     path, request.path, false
