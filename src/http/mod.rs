@@ -11,5 +11,7 @@ pub trait Parse<R>
 where
     R: AsyncRead + AsyncBufRead + Unpin,
 {
-    async fn parse(reader: &mut R) -> Self;
+    async fn parse(reader: &mut R) -> Self
+    where
+        Self: Sized;
 }

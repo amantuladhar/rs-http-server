@@ -1,4 +1,5 @@
 #![warn(clippy::all)]
+#![warn(opaque_hidden_inferred_bound)]
 
 use std::{collections::HashMap, sync::OnceLock};
 
