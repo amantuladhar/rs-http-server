@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path,
-    sync::{Arc, OnceLock},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use itertools::Itertools;
 use regex::Regex;
@@ -14,13 +10,7 @@ use tracing::{debug, error};
 
 use crate::http::method::Method;
 
-use super::{
-    method::Method::{Delete, Get, Post, Put},
-    request::Request,
-    response::Response,
-    status_code::StatusCode,
-    Parse,
-};
+use super::{request::Request, response::Response, status_code::StatusCode, Parse};
 
 pub type RouteHandler = fn(Request) -> Response;
 type RouteMap = HashMap<ServerRoute, RouteHandler>;
@@ -129,15 +119,15 @@ fn find_matching_route_method<'a>(
                 })
                 .join("\\/");
 
-            // Remove trailing `/` from the path
-            let req_path = if request.path.ends_with("/") {
-                request.path[0..request.path.len() - 1].to_string()
-            } else {
-                request.path.clone()
-            };
+            // // Remove trailing `/` from the path
+            // let req_path = if request.path.ends_with("/") {
+            //     request.path[0..request.path.len() - 1].to_string()
+            // } else {
+            //     request.path.clone()
+            // };
             let path_regex = format!(r"^{}$", path_regex);
             let regex = Regex::new(&path_regex).unwrap();
-            let Some(caps) = regex.captures(req_path.as_str()) else {
+            let Some(caps) = regex.captures(&request.path) else {
                 debug!(
                     "Path: {:?}, Request Path: {:?}, Match: {:?}",
                     path, request.path, false
