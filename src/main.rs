@@ -1,14 +1,12 @@
-use std::{
-    collections::HashMap,
-    io::Write,
-    net::{TcpListener, TcpStream},
-};
+#![warn(clippy::all)]
+
+use std::collections::HashMap;
 
 use http::request::Request;
 use tracing::info;
 
 use crate::{
-    http::{content_type::ContentType, status_code::StatusCode},
+    http::{response::Response, server::HttpServer},
     utils::setup::setup,
 };
 mod http;
@@ -16,27 +14,31 @@ mod utils;
 
 const HTTP_LINE_ENDING: &str = "\r\n";
 
-fn main() {
+#[tokio::main]
+async fn main() {
     setup();
-
     info!("Logs from your program will appear here!");
-    let cmd_args = parse_cmd_args();
-    let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut _stream) => {
-                let cloned_args = cmd_args.clone();
-                std::thread::spawn(move || {
-                    handle_incoming_request(_stream, cloned_args);
-                });
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        }
-    }
+    // let cmd_args = parse_cmd_args();
+    HttpServer::builder()
+        .get("/", root)
+        .get("/echo/:message", echo_route)
+        .start()
+        .await
+        .expect("unable to start server");
 }
 
+fn root(_: Request) -> Response {
+    Response::builder().build()
+}
+
+fn echo_route(request: Request) -> Response {
+    let mut res_builder = Response::builder();
+    if let Some(msg) = request.params.get("message") {
+        res_builder = res_builder.body(msg.as_bytes().to_vec());
+    }
+    res_builder.build()
+}
+/*
 fn handle_incoming_request(mut stream: TcpStream, cmd_args: HashMap<String, String>) {
     use http::method::Method::*;
     let res = Request::parse(&stream);
@@ -113,6 +115,7 @@ fn gen_http_response_with_msg(status: StatusCode, content_type: ContentType, msg
     msg_lines.push(msg.to_string());
     msg_lines.join(HTTP_LINE_ENDING)
 }
+*/
 
 fn parse_cmd_args() -> HashMap<String, String> {
     let arg_vec = std::env::args().collect::<Vec<String>>();
