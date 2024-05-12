@@ -119,19 +119,13 @@ fn find_matching_route_method<'a>(
                 })
                 .join("\\/");
 
-            // // Remove trailing `/` from the path
-            // let req_path = if request.path.ends_with("/") {
-            //     request.path[0..request.path.len() - 1].to_string()
-            // } else {
-            //     request.path.clone()
-            // };
             let path_regex = format!(r"^{}$", path_regex);
             let regex = Regex::new(&path_regex).unwrap();
             let Some(caps) = regex.captures(&request.path) else {
-                debug!(
-                    "Path: {:?}, Request Path: {:?}, Match: {:?}",
-                    path, request.path, false
-                );
+                // debug!(
+                //     "Path: {:?}, Request Path: {:?}, Match: {:?}",
+                //     path, request.path, false
+                // );
                 return None;
             };
             let mut route_params = HashMap::new();
@@ -139,10 +133,10 @@ fn find_matching_route_method<'a>(
                 let value = caps.name(grp_name).unwrap().as_str().to_string();
                 route_params.insert(grp_name.clone(), value);
             });
-            debug!(
-                "Path: {:?}, Request Path: {:?}, Match: {:?}, Params: {:?}",
-                path, request.path, true, route_params
-            );
+            // debug!(
+            //     "Path: {:?}, Request Path: {:?}, Match: {:?}, Params: {:?}",
+            //     path, request.path, true, route_params
+            // );
             return Some((route, route_params));
         });
     route_method
