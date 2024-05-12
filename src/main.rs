@@ -22,6 +22,7 @@ async fn main() {
     HttpServer::builder()
         .get("/", root)
         .get("/echo/:message", echo_route)
+        .get("/user-agent", user_agent)
         .start()
         .await
         .expect("unable to start server");
@@ -34,6 +35,13 @@ fn root(_: Request) -> Response {
 fn echo_route(request: Request) -> Response {
     let mut res_builder = Response::builder();
     if let Some(msg) = request.params.get("message") {
+        res_builder = res_builder.body(msg.as_bytes().to_vec());
+    }
+    res_builder.build()
+}
+fn user_agent(req: Request) -> Response {
+    let mut res_builder = Response::builder();
+    if let Some(msg) = req.headers.get("User-Agent") {
         res_builder = res_builder.body(msg.as_bytes().to_vec());
     }
     res_builder.build()
