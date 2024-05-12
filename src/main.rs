@@ -48,9 +48,13 @@ fn echo_route(request: Request) -> Response {
     let accept_encoding = request
         .headers
         .get(Header::AcceptEncoding.to_str())
-        .and_then(|e| match AcceptEncoding::from_str(e) {
-            Ok(accept_encoding) => Some(accept_encoding),
-            Err(_) => None,
+        .and_then(|value| {
+            value
+                .split(",")
+                .find_map(|encoding| match AcceptEncoding::from_str(encoding.trim()) {
+                    Ok(accept_encoding) => Some(accept_encoding),
+                    Err(_) => None,
+                })
         });
     Response::builder()
         .body(body)
