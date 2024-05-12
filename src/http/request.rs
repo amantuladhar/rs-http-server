@@ -1,12 +1,6 @@
-use std::{
-    collections::HashMap,
-    hash::Hash,
-    io::{BufRead, BufReader, Read},
-    net::TcpStream,
-    str::FromStr,
-};
+use std::{collections::HashMap, str::FromStr};
 
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt};
 
 use crate::HTTP_LINE_ENDING;
 
@@ -30,13 +24,14 @@ where
     async fn parse(reader: &mut R) -> Self {
         let start_line = StartLine::parse(reader).await;
         let headers = Self::parse_headers(reader).await;
+        let body = Self::parse_body(reader, &headers).await;
         Request {
             method: start_line.method,
             path: start_line.path,
             http_version: start_line.version,
             headers: headers,
             params: HashMap::default(),
-            body: vec![],
+            body: body,
         }
     }
 }
@@ -71,32 +66,17 @@ where
 }
 
 impl Request {
-    // pub fn parse(stream: &TcpStream) -> Self {
-    //     let mut reader = BufReader::new(stream);
-    //     let (method, path, http_version) = Request::parse_start_line(&mut reader);
-    //     let headers = Self::parse_headers(&mut reader);
-    //     let body = Self::parse_body(&mut reader, &headers);
-
-    //     Self {
-    //         method,
-    //         path,
-    //         http_version,
-    //         headers,
-    //         body,
-    //     }
-    // }
-
-    pub fn parse_body(
-        reader: &mut BufReader<&TcpStream>,
-        headers: &HashMap<String, String>,
-    ) -> Vec<u8> {
+    pub async fn parse_body<R>(reader: &mut R, headers: &HashMap<String, String>) -> Vec<u8>
+    where
+        R: AsyncRead + AsyncReadExt + AsyncBufRead + Unpin,
+    {
         let length = headers
             .get("Content-Length")
             .map_or("0", |v| v.as_str())
             .parse::<usize>()
             .unwrap();
         let mut body = vec![0; length];
-        reader.read_exact(&mut body).unwrap();
+        reader.read_exact(&mut body).await.unwrap();
         return body;
     }
 
@@ -121,7 +101,6 @@ impl Request {
         return headers;
     }
     pub fn parse_header(header: &str) -> (&str, &str) {
-        // println!("parse_header: {}", header);
         let (key, value) = header.split_once(": ").unwrap();
         (key, &value[..value.len() - HTTP_LINE_ENDING.len()])
     }
