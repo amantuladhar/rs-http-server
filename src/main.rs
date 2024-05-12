@@ -1,9 +1,12 @@
 #![warn(clippy::all)]
 #![warn(opaque_hidden_inferred_bound)]
 
-use std::{collections::HashMap, sync::OnceLock};
+use std::{collections::HashMap, str::FromStr, sync::OnceLock};
 
-use http::{content_type::ContentType, request::Request, status_code::StatusCode};
+use http::{
+    accept_encoding::AcceptEncoding, content_type::ContentType, header::Header, request::Request,
+    status_code::StatusCode,
+};
 use tracing::info;
 
 use crate::{
@@ -38,18 +41,28 @@ fn root(_: Request) -> Response {
 }
 
 fn echo_route(request: Request) -> Response {
-    let mut res_builder = Response::builder();
-    if let Some(msg) = request.params.get("message") {
-        res_builder = res_builder.body(msg.as_bytes().to_vec());
-    }
-    res_builder.build()
+    let body = request
+        .params
+        .get("message")
+        .map(|msg| msg.as_bytes().to_vec());
+    let accept_encoding = request
+        .headers
+        .get(Header::AcceptEncoding.to_str())
+        .and_then(|e| match AcceptEncoding::from_str(e) {
+            Ok(accept_encoding) => Some(accept_encoding),
+            Err(_) => None,
+        });
+    Response::builder()
+        .body(body)
+        .accept_encoding(accept_encoding)
+        .build()
 }
 fn user_agent(req: Request) -> Response {
-    let mut res_builder = Response::builder();
-    if let Some(msg) = req.headers.get("User-Agent") {
-        res_builder = res_builder.body(msg.as_bytes().to_vec());
-    }
-    res_builder.build()
+    let body = req
+        .headers
+        .get(Header::UserAgent.to_str())
+        .map(|msg| msg.as_bytes().to_vec());
+    Response::builder().body(body).build()
 }
 fn file_route(req: Request) -> Response {
     let mut res_builder = Response::builder();
@@ -74,7 +87,7 @@ fn file_route(req: Request) -> Response {
                 res_builder = res_builder
                     .status_code(StatusCode::Ok)
                     .content_type(ContentType::OctetStream)
-                    .body(file_content.as_bytes().to_vec())
+                    .body(Some(file_content.as_bytes().to_vec()))
             }
         },
     }
@@ -92,10 +105,14 @@ fn file_route_post(req: Request) -> Response {
         .expect("ARGS should already be set")
         .get("--directory")
     {
-        None => {
-            res_builder = res_builder.status_code(StatusCode::InternalServerError);
-        }
+        None => res_builder = res_builder.status_code(StatusCode::InternalServerError),
         Some(dir_name) => {
+            tracing::debug!(
+                "Writing file to: {}/{}, body: {:?}",
+                dir_name,
+                file_name,
+                &req.body
+            );
             std::fs::write(format!("{}/{}", dir_name, file_name), &req.body).unwrap();
             res_builder = res_builder.status_code(StatusCode::Created);
         }

@@ -1,6 +1,8 @@
 use tokio::io::{AsyncBufRead, AsyncRead};
 
+pub mod accept_encoding;
 pub mod content_type;
+pub mod header;
 pub mod method;
 pub mod request;
 pub mod response;

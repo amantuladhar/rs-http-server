@@ -71,7 +71,7 @@ impl Request {
         R: AsyncRead + AsyncReadExt + AsyncBufRead + Unpin,
     {
         let length = headers
-            .get("Content-Length")
+            .get("content-length")
             .map_or("0", |v| v.as_str())
             .parse::<usize>()
             .unwrap();
@@ -96,7 +96,7 @@ impl Request {
                 break;
             }
             let (key, value) = Self::parse_header(&cur_header);
-            headers.insert(key.to_string(), value.to_string());
+            headers.insert(key.to_lowercase(), value.to_string());
         }
         return headers;
     }
