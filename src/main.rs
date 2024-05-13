@@ -4,7 +4,7 @@
 use std::{collections::HashMap, str::FromStr, sync::OnceLock};
 
 use http::{
-    accept_encoding::AcceptEncoding, content_type::ContentType, header::Header, request::Request,
+    content_type::ContentType, encoding::Encoding, header::Header, request::Request,
     status_code::StatusCode,
 };
 use tracing::info;
@@ -45,13 +45,15 @@ fn echo_route(request: Request) -> Response {
         .params
         .get("message")
         .map(|msg| msg.as_bytes().to_vec());
+
+    // TODO(Aman): Can this be put when we parse request??
     let accept_encoding = request
         .headers
         .get(Header::AcceptEncoding.to_str())
         .and_then(|value| {
             value
                 .split(",")
-                .find_map(|encoding| match AcceptEncoding::from_str(encoding.trim()) {
+                .find_map(|encoding| match Encoding::from_str(encoding.trim()) {
                     Ok(accept_encoding) => Some(accept_encoding),
                     Err(_) => None,
                 })

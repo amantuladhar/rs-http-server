@@ -1,25 +1,25 @@
 use std::str::FromStr;
 
 #[derive(Clone)]
-pub enum AcceptEncoding {
+pub enum Encoding {
     Gzip,
 }
 
-impl AcceptEncoding {
+impl Encoding {
     pub fn to_str(&self) -> &str {
         match self {
-            AcceptEncoding::Gzip => "gzip",
+            Encoding::Gzip => "gzip",
         }
     }
 }
 
-impl FromStr for AcceptEncoding {
+impl FromStr for Encoding {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "gzip" => Ok(AcceptEncoding::Gzip),
-            _ => Err("Unsupported Accept-Encoding".to_string()),
+            "gzip" => Ok(Encoding::Gzip),
+            _ => Err("Unsupported Encoding".to_string()),
         }
     }
 }
